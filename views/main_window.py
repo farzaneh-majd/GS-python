@@ -82,13 +82,13 @@ class MainWindow(QMainWindow):
         self.log(f"--- Incoming Server Command: ID {cmd.get('cmd_id')} ---")
 
     def _handle_received_packet(self, packet: dict):
+
         # always show raw bytes in packet monitor
         if "raw" in packet:
             self.packet_monitor.add_packet(packet["raw"])
 
-        # local decode for GUI only
         try:
-            decoded = self.decoder.decode(packet["tlm_id"], packet["payload"])
+            decoded = self.decoder.decode(packet["payload"])
         except Exception as e:
             self.log(f"Decode Error: {e}")
             return
@@ -96,9 +96,21 @@ class MainWindow(QMainWindow):
         if not decoded:
             return
 
-        # Adjust this part to match your decoder output shape
-        if decoded.get("type") == "telemetry":
-                self._upsert_tlm_row(str(decoded.get("name")), str(decoded.get("value")))
+        tlm_name = decoded.get("name")
+        tlm_id = decoded.get("tlm_id")
+        value = decoded.get("value")
+
+        # -------- Scalar telemetry --------
+        if not isinstance(value, dict):
+            var_name = f"{tlm_name} (0x{tlm_id})"
+            self._upsert_tlm_row(var_name, str(value))
+            return
+
+        # -------- Struct telemetry --------
+        for field_name, field_value in value.items():
+            var_name = f"{tlm_name}.{field_name} (0x{tlm_id})"
+            self._upsert_tlm_row(var_name, str(field_value))
+
 
     def _upsert_tlm_row(self, variable: str, value_text: str) -> None:
         """Insert row for variable if missing; otherwise update existing row."""
@@ -120,18 +132,25 @@ class MainWindow(QMainWindow):
             self.tlm_table.item(row, 1).setText(timestamp)
             self.tlm_table.item(row, 2).setText(value_text)
 
-    def _add_packet_to_telemetry_tab(self, packet: dict):
-        row = self.tlm_table.rowCount()
-        self.tlm_table.insertRow(row)
+    def _upsert_tlm_row(self, variable: str, value_text: str) -> None:
+        """Insert row for variable if missing; otherwise update existing row."""
 
-        # Example fields — adjust keys to your packet structure
-        variable = packet.get("tlm_id", "packet")
-        timestamp = packet.get("timestamp", "")
-        value = packet.get("payload", "")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
-        self.tlm_table.setItem(row, 0, QTableWidgetItem(str(variable)))
-        self.tlm_table.setItem(row, 1, QTableWidgetItem(str(timestamp)))
-        self.tlm_table.setItem(row, 2, QTableWidgetItem(str(value)))
+        row = self._tlm_row_by_var.get(variable)
+
+        if row is None:
+            row = self.tlm_table.rowCount()
+            self.tlm_table.insertRow(row)
+            self._tlm_row_by_var[variable] = row
+
+            self.tlm_table.setItem(row, 0, QTableWidgetItem(variable))
+            self.tlm_table.setItem(row, 1, QTableWidgetItem(timestamp))
+            self.tlm_table.setItem(row, 2, QTableWidgetItem(value_text))
+        else:
+            self.tlm_table.item(row, 1).setText(timestamp)
+            self.tlm_table.item(row, 2).setText(value_text)
+
 
 
     def closeEvent(self, event):
