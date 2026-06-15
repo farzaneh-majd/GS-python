@@ -5,7 +5,7 @@ class TelemetryProcessor(QObject):
     packet_parsed = pyqtSignal(dict)
     error_occurred = pyqtSignal(str)
 
-    SYNC = b'\xAA\xAA'
+    SYNC = b'\xDE\xAD\xBE\xEF'
 
     def __init__(self):
         super().__init__()
@@ -46,7 +46,7 @@ class TelemetryProcessor(QObject):
 
             if sync_index == -1:
                 if len(self.buffer) > 1:
-                    self.buffer = self.buffer[-1:]
+                    self.buffer = self.buffer[-3:]
                 else:
                     self.buffer.clear()
                 break
@@ -55,12 +55,12 @@ class TelemetryProcessor(QObject):
                 del self.buffer[:sync_index]
 
             # Minimum frame:
-            # SYNC(2) + TLMID(2) + TIMESTAMP(4) + LEN(1) + CRC(1) = 10 bytes minimum
-            if len(self.buffer) < 10:
+            # SYNC(4) + LEN(4) + Payload (N bytes) + CRC(4) = 13 bytes minimum
+            if len(self.buffer) < 14:
                 break
 
-            payload_len = self.buffer[8]
-            total_frame_len = 9 + payload_len + 1
+            payload_len = int.from_bytes(self.buffer[4:8])
+            total_frame_len = 8 + payload_len + 4
 
             if len(self.buffer) < total_frame_len:
                 break
@@ -68,10 +68,9 @@ class TelemetryProcessor(QObject):
             frame = bytes(self.buffer[:total_frame_len])
             del self.buffer[:total_frame_len]
 
-            tlm_id = int.from_bytes(frame[2:4], byteorder='big')
-            timestamp_raw = int.from_bytes(frame[4:8], byteorder='big')
-            payload = frame[9:9 + payload_len]
-            received_crc = frame[-1]
+            
+            payload = frame[8:8 + payload_len]
+            received_crc = frame[-4:]
 
             # Optional CRC check — currently not enforced
             # computed_crc = self.compute_crc(frame[:-1])
@@ -79,10 +78,8 @@ class TelemetryProcessor(QObject):
             #     continue
             pkt = {
                 "raw": frame,
-                "tlm_id": tlm_id,
-                "timestamp": timestamp_raw,
-                "payload": payload,
                 "length": payload_len,
+                "payload": payload,
                 "crc": received_crc,
             }
             packets.append(pkt)
