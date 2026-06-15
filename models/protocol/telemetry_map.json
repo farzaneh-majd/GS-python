@@ -3,21 +3,47 @@
   "mission": "CubeSat-V1",
   
   "telemetry": {
-    "1": { "name": "led_state", "kind": "scalar", "format": "u8", "unit": "state", "enum": { "0": "OFF", "1": "ON" } },
-    "2": { 
-        "name": "imu_data", "kind": "struct", "unit": "m/s^2, deg/s",
-        "fields": [
-            {"name": "accel_x", "format": "f32"}, {"name": "accel_y", "format": "f32"}, {"name": "accel_z", "format": "f32"},
-            {"name": "gyro_x", "format": "f32"}, {"name": "gyro_y", "format": "f32"}, {"name": "gyro_z", "format": "f32"}
-        ]
+    "0001": {  "name": "led_state", "kind": "scalar", "format": "u8", "unit": "state", "enum": { "0": "OFF", "1": "ON" } },
+    "0002": { 
+            "name": "imu_data", "kind": "struct", "unit": "m/s^2, deg/s",
+            "fields": [
+                {"name": "accel_x", "format": "f32"}, {"name": "accel_y", "format": "f32"}, {"name": "accel_z", "format": "f32"},
+                {"name": "gyro_x", "format": "f32"}, {"name": "gyro_y", "format": "f32"}, {"name": "gyro_z", "format": "f32"}
+            ]
     },
-    "3": { "name": "battery_voltage", "kind": "scalar", "format": "f32", "unit": "V" }
+    "0003": {  "name": "battery_voltage", "kind": "scalar", "format": "f32", "unit": "V" },
+    "0004": {  "name": "solar_cell_voltage_LL", "kind":"scalar", "format":"f32","unit":"V"},
+    "0005": {  "name": "solar_cell_voltage_LU", "kind":"scalar", "format":"f32","unit":"V"},
+    "0006": {  "name": "solar_cell_voltage_RL", "kind":"scalar", "format":"f32","unit":"V"},
+    "0007": {  "name": "solar_cell_voltage_RU", "kind":"scalar", "format":"f32","unit":"V"}, 
+    "0008": { 
+            "name": "aht10_data_front", "kind":"struct","unit":"C, %",
+            "fields": [
+              {"name":"temperature", "format":"f32"},
+              {"name":"humidity", "format":"u8"}
+            ]
+        },
+    "0009": { 
+            "name": "aht10_data_back", "kind":"struct","unit":"C, %",
+            "fields": [
+              {"name":"temperature", "format":"f32"},
+              {"name":"humidity", "format":"u8"}
+            ]
+        },
+    "0010": { 
+                "name": "magneto_menter", "kind":"struct","unit":"T",
+                "fields": [
+                  {"name":"u_x", "format":"f32"}, {"name":"u_y", "format":"f32"},{"name":"u_z", "format":"f32"},
+                  {"name":"headingDeg", "format":"f32"}
+                ]
+
+            }
   },
 
   "events": {
-    "100": { "name": "SYSTEM_BOOT", "severity": "info", "msg": "Satellite boot sequence complete." },
-    "101": { "name": "DEPLOY_FAIL", "severity": "critical", "msg": "Deployment mechanism reported failure!" },
-    "200": { "name": "BATT_LOW", "severity": "warning", "msg": "Battery levels critical (< 3.6V)" }
+    "0000": { "name": "SYSTEM", "severity": "info", "msg": "Satellite boot sequence complete." },
+    "0001": { "name": "SYSTEM", "severity": "critical", "msg": "Deployment mechanism reported failure!" },
+    "0002": { "name": "SYSTEM", "severity": "critical", "msg": "Deployment mechanism reported failure!" }
   },
 
   "blobs": {
