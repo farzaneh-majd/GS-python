@@ -1,45 +1,84 @@
 import struct
 import json
 
+ENDIAN = ">"   # big endian
+
+FORMAT_MAP = {
+    "u8": "B",
+    "u16": "H",
+    "u32": "I",
+    "i8": "b",
+    "i16": "h",
+    "i32": "i",
+    "f32": "f",
+    "f64": "d"
+}
+
+
 class TelemetryDecoder:
-    def __init__(self, map_path):
-        with open(map_path, 'r') as f:
-            data = json.load(f)
-            self.tlm = data['telemetry']
-            self.events = data['events']
-            self.blobs = data['blobs']
 
-    def decode(self, packet_id, payload):
-        packet_id = str(packet_id)
-        # 1. Check Telemetry
-        
-        if packet_id in self.tlm:
-            return self._decode_telemetry(self.tlm[packet_id], payload)
-            
-        # 2. Check Events
-        elif packet_id in self.events:
-            return {"type": "event", "data": self.events[packet_id]}
-            
-        # 3. Check Blobs
-        elif packet_id in self.blobs:
-            return {"type": "blob", "data": payload}
-            
-        return {"type": "unknown", "data": payload}
+    def __init__(self, map_file):
+        with open(map_file) as f:
+            self.map = json.load(f)["telemetry"]
 
-    def _decode_telemetry(self, entry, payload):
-        # Generic unpacker logic based on entry['kind']
-        if entry['kind'] == 'scalar':
-            fmt = ">" + self._get_fmt(entry['format'])
-            val = struct.unpack(fmt, payload)[0]
-            # If it's an enum, look up the string
-            if "enum" in entry:
-                val = entry["enum"].get(str(int(val)), "UNKNOWN")
-            return {"type": "telemetry", "name": entry['name'], "value": val}
-            
-        elif entry['kind'] == 'struct':
-            # Dynamic struct unpacking
-            # ... loop through fields and calculate offset ...
-            return {"type": "telemetry", "name": entry['name'], "values": ...}
+        self.compiled = {}
+        self._compile_formats()
 
-    def _get_fmt(self, ftype):
-        return {"u8": "B", "u16": "H", "f32": "f"}.get(ftype, "B")
+    def _compile_formats(self):
+        for tlm_id_hex, tlm in self.map.items():
+
+            # normalize key (uppercase, zero padded)
+            tlm_id_hex = tlm_id_hex.upper().zfill(4)
+
+            if tlm["kind"] == "scalar":
+                fmt = ENDIAN + FORMAT_MAP[tlm["format"]]
+                fields = ["value"]
+
+            elif tlm["kind"] == "struct":
+                fmt = ENDIAN + "".join(FORMAT_MAP[f["format"]] for f in tlm["fields"])
+                fields = [f["name"] for f in tlm["fields"]]
+
+            else:
+                continue
+
+            self.compiled[tlm_id_hex] = {
+                "name": tlm["name"],
+                "struct": struct.Struct(fmt),
+                "fields": fields,
+                "enum": tlm.get("enum")
+            }
+
+    def decode_payload(self, payload):
+
+        tlm_id_int = struct.unpack_from(ENDIAN + "H", payload, 0)[0]
+
+        # convert to 4-digit hex string
+        tlm_id_hex = f"{tlm_id_int:04X}"
+
+        data = payload[2:]
+
+        if tlm_id_hex not in self.compiled:
+            raise ValueError(f"Unknown telemetry id {tlm_id_hex}")
+
+        meta = self.compiled[tlm_id_hex]
+
+        values = meta["struct"].unpack(data[:meta["struct"].size])
+
+        if meta["fields"] == ["value"]:
+            value = values[0]
+
+            if meta["enum"]:
+                value = meta["enum"].get(str(value), value)
+
+            return {
+                "tlm_id": tlm_id_hex,
+                "name": meta["name"],
+                "value": value
+            }
+
+        else:
+            return {
+                "tlm_id": tlm_id_hex,
+                "name": meta["name"],
+                "value": dict(zip(meta["fields"], values))
+            }
