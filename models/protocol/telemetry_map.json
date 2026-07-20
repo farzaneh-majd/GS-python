@@ -12,32 +12,40 @@
             ]
     },
     "0003": {  "name": "battery_voltage", "kind": "scalar", "format": "f32", "unit": "V" },
-    "0004": {  "name": "solar_cell_voltage_LL", "kind":"scalar", "format":"f32","unit":"V"},
-    "0005": {  "name": "solar_cell_voltage_LU", "kind":"scalar", "format":"f32","unit":"V"},
-    "0006": {  "name": "solar_cell_voltage_RL", "kind":"scalar", "format":"f32","unit":"V"},
-    "0007": {  "name": "solar_cell_voltage_RU", "kind":"scalar", "format":"f32","unit":"V"}, 
-    "0008": { 
+    "0004": {
+            "name": "solar_cell_voltages", "kind": "struct", "unit":"V",
+            "fields": [
+              {  "name": "solar_cell_voltage_LL", "format":"f32"},
+              {  "name": "solar_cell_voltage_LU", "format":"f32"},
+              {  "name": "solar_cell_voltage_RL", "format":"f32"},
+              {  "name": "solar_cell_voltage_RU", "format":"f32"}
+            ]
+    },
+    "0005": { 
             "name": "aht10_data_front", "kind":"struct","unit":"C, %",
             "fields": [
               {"name":"temperature", "format":"f32"},
               {"name":"humidity", "format":"u8"}
             ]
         },
-    "0009": { 
+    "0006": { 
             "name": "aht10_data_back", "kind":"struct","unit":"C, %",
             "fields": [
               {"name":"temperature", "format":"f32"},
               {"name":"humidity", "format":"u8"}
             ]
         },
-    "0010": { 
-                "name": "magneto_menter", "kind":"struct","unit":"T",
+    "0007": { 
+                "name": "magneto_meter", "kind":"struct","unit":"T",
                 "fields": [
                   {"name":"u_x", "format":"f32"}, {"name":"u_y", "format":"f32"},{"name":"u_z", "format":"f32"},
                   {"name":"headingDeg", "format":"f32"}
                 ]
 
-            }
+            },
+    "0008": {
+                "name": "magneto_meter", "kind":"scalar", "format":"f32", "unit": "C"
+    }
   },
 
   "events": {
