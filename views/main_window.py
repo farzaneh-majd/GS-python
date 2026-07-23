@@ -88,7 +88,7 @@ class MainWindow(QMainWindow):
             self.packet_monitor.add_packet(packet["raw"])
 
         try:
-            decoded = self.decoder.decode(packet["payload"])
+            decoded = self.decoder.decode_payload(packet["payload"])
         except Exception as e:
             self.log(f"Decode Error: {e}")
             return

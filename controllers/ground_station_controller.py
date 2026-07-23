@@ -7,7 +7,7 @@ from models.serial_interface import SerialInterface
 from models.receiver_thread import ReceiverThread
 from models.telemetry_processor import TelemetryProcessor
 from models.protocol.command_packet import build_command_packet
-# from models.telemetry_forwarder import TelemetryForwarder
+from services.telemetry_forwarder import TelemetryForwarder
 # from models.command_receiver import CommandReceiver
 
 class GroundStationController(QObject):
@@ -24,7 +24,7 @@ class GroundStationController(QObject):
         # 1. Instantiate Models
         self.serial_interface = SerialInterface()
         self.telemetry_processor = TelemetryProcessor()
-        # self.telemetry_forwarder = TelemetryForwarder()
+        self.telemetry_forwarder = TelemetryForwarder()
         # self.command_receiver = CommandReceiver()
         self.receiver_thread = None
 
@@ -147,7 +147,7 @@ class GroundStationController(QObject):
         try:
 
             clean_hex = re.sub(r'[^0-9A-Fa-f]', '', hex_text)
-
+            
             if len(clean_hex) % 2 != 0:
                 raise ValueError("Hex string must contain full bytes")
 

@@ -55,7 +55,7 @@ class TelemetryDecoder:
         # convert to 4-digit hex string
         tlm_id_hex = f"{tlm_id_int:04X}"
 
-        data = payload[2:]
+        data = payload[6:]
 
         if tlm_id_hex not in self.compiled:
             raise ValueError(f"Unknown telemetry id {tlm_id_hex}")

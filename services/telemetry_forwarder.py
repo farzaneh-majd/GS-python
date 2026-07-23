@@ -27,7 +27,7 @@ class TelemetryForwarder(QObject):
         # Load .env (safe to call multiple times)
         load_dotenv(env_path)
 
-        self.url = os.getenv("INFLUX_URL", "http://localhost:8086")
+        self.url = os.getenv("INFLUX_URL", "http://localhost:3000")
         self.token = os.getenv("INFLUX_TOKEN", "")
         self.org = os.getenv("INFLUX_ORG", "")
         self.bucket = os.getenv("INFLUX_BUCKET", "")

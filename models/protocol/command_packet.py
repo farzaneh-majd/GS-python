@@ -1,24 +1,19 @@
-SYNC_BYTE = 0xAAAA
+SYNC_BYTE = 0xDEADBEEF
 
 
 def compute_crc(data: bytes) -> int:
-    """
-    Computes CRC-8 matching the provided CommandDispatcher::computeCRC logic.
-    Polynomial: 0x07 (x^8 + x^2 + x + 1)
-    Initial Value: 0xFF
-    """
-    crc = 0xFF
-    
+    crc = 0xFFFFFFFF
+
     for byte in data:
         crc ^= byte
+
         for _ in range(8):
-            if crc & 0x80:
-                # Polynomial 0x07 is used here
-                crc = ((crc << 1) ^ 0x07) & 0xFF
+            if crc & 1:
+                crc = (crc >> 1) ^ 0xEDB88320
             else:
-                crc = (crc << 1) & 0xFF
-                
-    return crc
+                crc >>= 1
+
+    return (~crc) & 0xFFFFFFFF
 
 
 def build_command_packet(opcode: bytes, args: bytes = b"") -> bytes:
@@ -35,11 +30,12 @@ def build_command_packet(opcode: bytes, args: bytes = b"") -> bytes:
 
     # packet = bytes([SYNC_BYTE>>8, SYNC_BYTE & 0xff, length]) + data
 
-    packet = bytes([length]) + data
+    packet = bytes([(length>>24)&0xff, (length>>16)&0xff, (length>>8)&0xff, (length)&0xff]) + data
 
     crc = compute_crc(packet)
+    crc = bytes([(crc>>24)&0xff,(crc>>16)&0xff,(crc>>8)&0xff,(crc)&0xff])
 
 
-    packet = bytes([SYNC_BYTE>>8, SYNC_BYTE & 0xff]) + packet + bytes([crc])
+    packet = bytes([(SYNC_BYTE>>24)&0xff, (SYNC_BYTE>>16) & 0xff,(SYNC_BYTE>>8)&0xff, SYNC_BYTE & 0xff]) + packet + crc
 
     return packet

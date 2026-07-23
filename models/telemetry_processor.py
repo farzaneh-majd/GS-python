@@ -13,20 +13,19 @@ class TelemetryProcessor(QObject):
 
     @staticmethod
     def compute_crc(data: bytes) -> int:
-        """
-        Computes CRC-8 matching the provided CommandDispatcher::computeCRC logic.
-        Polynomial: 0x07 (x^8 + x^2 + x + 1)
-        Initial Value: 0xFF
-        """
-        crc = 0xFF
+        crc = 0xFFFFFFFF
+
         for byte in data:
             crc ^= byte
+
             for _ in range(8):
-                if crc & 0x80:
-                    crc = ((crc << 1) ^ 0x07) & 0xFF
+                if crc & 1:
+                    crc = (crc >> 1) ^ 0xEDB88320
                 else:
-                    crc = (crc << 1) & 0xFF
-        return crc
+                    crc >>= 1
+
+        return (~crc) & 0xFFFFFFFF
+
 
     @pyqtSlot(bytes)
     def process_raw_data(self, data: bytes):
@@ -56,7 +55,7 @@ class TelemetryProcessor(QObject):
 
             # Minimum frame:
             # SYNC(4) + LEN(4) + Payload (N bytes) + CRC(4) = 13 bytes minimum
-            if len(self.buffer) < 14:
+            if len(self.buffer) < 13:
                 break
 
             payload_len = int.from_bytes(self.buffer[4:8])
