@@ -27,17 +27,17 @@ class TelemetryForwarder(QObject):
         # Load .env (safe to call multiple times)
         load_dotenv(env_path)
 
-        self.url = os.getenv("INFLUX_URL", "http://localhost:3000")
+        self.url = os.getenv("INFLUX_URL", "http://localhost:8086")
         self.token = os.getenv("INFLUX_TOKEN", "")
         self.org = os.getenv("INFLUX_ORG", "")
         self.bucket = os.getenv("INFLUX_BUCKET", "")
-
+        
         self.measurement = os.getenv("INFLUX_MEASUREMENT", "telemetry")
         self.satellite_id = os.getenv("INFLUX_SATELLITE_ID", "CUBESAT_01")
 
         precision_str = os.getenv("INFLUX_TIME_PRECISION", "ms").lower().strip()
         self.time_precision = _PRECISION_MAP.get(precision_str, WritePrecision.MS)
-
+        
         self.client: InfluxDBClient | None = None
         self.write_api = None
 
@@ -57,6 +57,7 @@ class TelemetryForwarder(QObject):
                 f"InfluxDB Forwarder initialized (bucket={self.bucket}, org={self.org})."
             )
         except Exception as e:
+            
             self.write_api = None
             self.client = None
             self.error_occurred.emit(f"Failed to connect to InfluxDB: {e}")
@@ -77,17 +78,21 @@ class TelemetryForwarder(QObject):
         try:
             tlm_id = packet.get("tlm_id", "unknown")
             ts = packet.get("timestamp", None)
-            payload = packet.get("payload", b"")
+            payload = packet.get("data", b"")
+
+            print(ts)
 
             if ts is None:
                 raise ValueError("packet missing required field: 'timestamp'")
 
             # store payload as a string field (Influx fields cannot be raw bytes)
+            print()
             if isinstance(payload, (bytes, bytearray)):
                 payload_str = payload.hex()
             else:
                 payload_str = str(payload)
-
+            # print(payload_str)
+            
             point = (
                 Point(self.measurement)
                 .tag("satellite_id", self.satellite_id)
@@ -95,7 +100,6 @@ class TelemetryForwarder(QObject):
                 .field("payload", payload_str)
                 .time(int(ts), self.time_precision)
             )
-
             self.write_api.write(bucket=self.bucket, org=self.org, record=point)
 
         except Exception as e:
