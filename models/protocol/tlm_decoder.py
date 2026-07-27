@@ -55,7 +55,8 @@ class TelemetryDecoder:
         # convert to 4-digit hex string
         tlm_id_hex = f"{tlm_id_int:04X}"
 
-        timestamp = payload[2:6]
+        timestamp = float(int.from_bytes(payload[2:6],"big"))
+
         data = payload[6:]
 
         if tlm_id_hex not in self.compiled:
