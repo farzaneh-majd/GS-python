@@ -29,7 +29,6 @@ import re
 
 from controllers.ground_station_controller import GroundStationController
 from views.packet_monitor import PacketMonitorWidget
-from models.protocol.tlm_decoder import TelemetryDecoder
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -40,8 +39,6 @@ class MainWindow(QMainWindow):
         self._build_ui()
 
         self._tlm_row_by_var: dict[str, int] = {}
-  
-        self.decoder = TelemetryDecoder("./models/protocol/telemetry_map.json")
 
         self.controller = GroundStationController()
         self.controller.packet_received.connect(self._handle_received_packet)
@@ -87,35 +84,29 @@ class MainWindow(QMainWindow):
         if "raw" in packet:
             self.packet_monitor.add_packet(packet["raw"])
 
-        try:
-            decoded = self.decoder.decode_payload(packet["payload"])
-        except Exception as e:
-            self.log(f"Decode Error: {e}")
-            return
-
-        if not decoded:
-            return
-
+        decoded = packet.get("decoded")
         tlm_name = decoded.get("name")
         tlm_id = decoded.get("tlm_id")
         value = decoded.get("value")
+        ts = datetime.fromtimestamp(decoded.get("timestamp")/1000)
+
 
         # -------- Scalar telemetry --------
         if not isinstance(value, dict):
             var_name = f"{tlm_name} (0x{tlm_id})"
-            self._upsert_tlm_row(var_name, str(value))
+            self._upsert_tlm_row(var_name, str(value),ts)
             return
 
         # -------- Struct telemetry --------
         for field_name, field_value in value.items():
             var_name = f"{tlm_name}.{field_name} (0x{tlm_id})"
-            self._upsert_tlm_row(var_name, str(field_value))
+            self._upsert_tlm_row(var_name, str(field_value),ts)
 
 
-    def _upsert_tlm_row(self, variable: str, value_text: str) -> None:
+    def _upsert_tlm_row(self, variable: str, value_text: str, timestamp: datetime) -> None:
         """Insert row for variable if missing; otherwise update existing row."""
         # system time (local)
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
         row = self._tlm_row_by_var.get(variable)
         if row is None:
@@ -132,24 +123,24 @@ class MainWindow(QMainWindow):
             self.tlm_table.item(row, 1).setText(timestamp)
             self.tlm_table.item(row, 2).setText(value_text)
 
-    def _upsert_tlm_row(self, variable: str, value_text: str) -> None:
-        """Insert row for variable if missing; otherwise update existing row."""
+    # def _upsert_tlm_row(self, variable: str, value_text: str) -> None:
+    #     """Insert row for variable if missing; otherwise update existing row."""
 
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    #     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
-        row = self._tlm_row_by_var.get(variable)
+    #     row = self._tlm_row_by_var.get(variable)
 
-        if row is None:
-            row = self.tlm_table.rowCount()
-            self.tlm_table.insertRow(row)
-            self._tlm_row_by_var[variable] = row
+    #     if row is None:
+    #         row = self.tlm_table.rowCount()
+    #         self.tlm_table.insertRow(row)
+    #         self._tlm_row_by_var[variable] = row
 
-            self.tlm_table.setItem(row, 0, QTableWidgetItem(variable))
-            self.tlm_table.setItem(row, 1, QTableWidgetItem(timestamp))
-            self.tlm_table.setItem(row, 2, QTableWidgetItem(value_text))
-        else:
-            self.tlm_table.item(row, 1).setText(timestamp)
-            self.tlm_table.item(row, 2).setText(value_text)
+    #         self.tlm_table.setItem(row, 0, QTableWidgetItem(variable))
+    #         self.tlm_table.setItem(row, 1, QTableWidgetItem(timestamp))
+    #         self.tlm_table.setItem(row, 2, QTableWidgetItem(value_text))
+    #     else:
+    #         self.tlm_table.item(row, 1).setText(timestamp)
+    #         self.tlm_table.item(row, 2).setText(value_text)
 
 
 
