@@ -1,5 +1,6 @@
 import os
 import re
+import math
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 # Import Models
@@ -8,6 +9,8 @@ from models.receiver_thread import ReceiverThread
 from models.telemetry_processor import TelemetryProcessor
 from models.protocol.command_packet import build_command_packet
 from services.telemetry_forwarder import TelemetryForwarder
+from models.protocol.tlm_decoder import TelemetryDecoder
+from datetime import datetime
 # from models.command_receiver import CommandReceiver
 
 class GroundStationController(QObject):
@@ -25,6 +28,7 @@ class GroundStationController(QObject):
         self.serial_interface = SerialInterface()
         self.telemetry_processor = TelemetryProcessor()
         self.telemetry_forwarder = TelemetryForwarder()
+        self.decoder = TelemetryDecoder("./models/protocol/telemetry_map.json")
         # self.command_receiver = CommandReceiver()
         self.receiver_thread = None
 
@@ -41,8 +45,8 @@ class GroundStationController(QObject):
 
 
         # Connect Forwarder & CommandReceiver feedback to general status signals
-        # self.telemetry_forwarder.status_message.connect(self.status_message.emit)
-        # self.telemetry_forwarder.error_occurred.connect(self.error_message.emit)
+        self.telemetry_forwarder.status_message.connect(self.status_message.emit)
+        self.telemetry_forwarder.error_occurred.connect(self.error_message.emit)
         
         # self.command_receiver.status_messags
         self.status_message.emit("System Controller initialized.")
@@ -101,10 +105,23 @@ class GroundStationController(QObject):
     @pyqtSlot(dict)
     def _handle_parsed_packet(self, packet: dict):
         """Routes parsed data to GUI and InfluxDB."""
+        # decode the payload (extracting tlm_id,timestamp,data)
+
+        try:
+            decoded = self.decoder.decode_payload(packet["payload"])
+        except Exception as e:
+            self.log(f"Decode Error: {e}")
+            return
+        packet["decoded"] = decoded
+
+
+        # temprorary replace cubesat timestamp with local machine timestamp
+        packet["decoded"]["timestamp"] = math.floor(datetime.now().timestamp() * 1000)
+
         # Send to View
         self.packet_received.emit(packet)
         # Send to InfluxDB
-        # self.telemetry_forwarder.forward(packet)
+        self.telemetry_forwarder.forward(packet["decoded"])
 
     @pyqtSlot(bytes)
     def _handle_received_data(self, data:bytes):
@@ -161,4 +178,4 @@ class GroundStationController(QObject):
 
     def cleanup(self):
         self.disconnect_serial()
-        # self.telemetry_forwarder.close()
+        self.telemetry_forwarder.close()
