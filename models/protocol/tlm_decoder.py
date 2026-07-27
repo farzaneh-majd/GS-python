@@ -55,6 +55,7 @@ class TelemetryDecoder:
         # convert to 4-digit hex string
         tlm_id_hex = f"{tlm_id_int:04X}"
 
+        timestamp = payload[2:6]
         data = payload[6:]
 
         if tlm_id_hex not in self.compiled:
@@ -73,12 +74,14 @@ class TelemetryDecoder:
             return {
                 "tlm_id": tlm_id_hex,
                 "name": meta["name"],
-                "value": value
+                "value": value,
+                "timestamp":timestamp
             }
 
         else:
             return {
                 "tlm_id": tlm_id_hex,
                 "name": meta["name"],
-                "value": dict(zip(meta["fields"], values))
+                "value": dict(zip(meta["fields"], values)),
+                "timestamp":timestamp
             }
