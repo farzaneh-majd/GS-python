@@ -74,6 +74,7 @@ class TelemetryDecoder:
 
             return {
                 "tlm_id": tlm_id_hex,
+                "data": data,
                 "name": meta["name"],
                 "value": value,
                 "timestamp":timestamp
@@ -82,6 +83,7 @@ class TelemetryDecoder:
         else:
             return {
                 "tlm_id": tlm_id_hex,
+                "data": data,
                 "name": meta["name"],
                 "value": dict(zip(meta["fields"], values)),
                 "timestamp":timestamp
