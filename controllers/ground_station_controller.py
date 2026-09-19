@@ -9,6 +9,7 @@ from models.receiver_thread import ReceiverThread
 from models.telemetry_processor import TelemetryProcessor
 from models.protocol.command_packet import build_command_packet
 from services.telemetry_forwarder import TelemetryForwarder
+from services.telecommand_receiver import TelecommandReceiver
 from models.protocol.tlm_decoder import TelemetryDecoder
 from datetime import datetime
 # from models.command_receiver import CommandReceiver
@@ -28,8 +29,8 @@ class GroundStationController(QObject):
         self.serial_interface = SerialInterface()
         self.telemetry_processor = TelemetryProcessor()
         self.telemetry_forwarder = TelemetryForwarder()
+        self.command_receiver = TelecommandReceiver()
         self.decoder = TelemetryDecoder("./models/protocol/telemetry_map.json")
-        # self.command_receiver = CommandReceiver()
         self.receiver_thread = None
 
         # 2. Internal Signal Wiring (Data Pipeline)
@@ -47,6 +48,9 @@ class GroundStationController(QObject):
         # Connect Forwarder & CommandReceiver feedback to general status signals
         self.telemetry_forwarder.status_message.connect(self.status_message.emit)
         self.telemetry_forwarder.error_occurred.connect(self.error_message.emit)
+        self.command_receiver.command_received.connect(self.handle_server_command)
+        self.command_receiver.status_message.connect(self.status_message.emit)
+        self.command_receiver.error_occurred.connect(self.error_message.emit)
         
         # self.command_receiver.status_messags
         self.status_message.emit("System Controller initialized.")
@@ -59,7 +63,11 @@ class GroundStationController(QObject):
 
     def connect_serial(self, port: str, baudrate: int):
         if self.serial_interface.is_connected():
-            return
+            return True
+
+        if not port:
+            self.error_message.emit("No serial port is available. Turn Bluetooth on, refresh ports, and select a port.")
+            return False
 
         try:
             self.serial_interface.connect(port, baudrate)
@@ -75,14 +83,16 @@ class GroundStationController(QObject):
             
             self.receiver_thread.start()
             
-            # Start fetching commands from server if enabled
-            # if self.command_receiver.enabled and not self.command_receiver.isRunning():
-            #     self.command_receiver.start()
+            # Poll after the window has finished connecting so a database or
+            # Bluetooth delay cannot block the Connect button handler.
+            self.command_receiver.start_polling()
 
             self.status_message.emit(f"Connected to {port}. Threads started.")
+            return True
 
         except Exception as e:
             self.error_message.emit(f"Connection error: {e}")
+            return False
 
     def disconnect_serial(self):
         if self.receiver_thread and self.receiver_thread.isRunning():
@@ -92,8 +102,7 @@ class GroundStationController(QObject):
         if self.serial_interface.is_connected():
             self.serial_interface.disconnect()
         
-        # if self.command_receiver.isRunning():
-        #     self.command_receiver.stop()
+        self.command_receiver.stop_polling()
             
         self.status_message.emit("Disconnected.")
 
@@ -137,22 +146,20 @@ class GroundStationController(QObject):
             return
 
         # Simple Packet Builder logic (Can be moved to a helper function)
-        cmd_id = command.get("cmd_id")
-        payload_hex = command.get("payload_hex", "")
-        
         try:
-            payload = bytes.fromhex(payload_hex) if payload_hex else b""
-            # Example Structure: [SYNC 2B][CMD_ID 2B][PAYLOAD NB][CRC 1B]
-            full_packet = b'\xAA\xAA' + cmd_id.to_bytes(2, 'big') + payload + b'\x0D'
-            
+            command_hex = re.sub(r'[^0-9A-Fa-f]', '', str(command.get("command_hex", "")))
+            if not command_hex or len(command_hex) % 2:
+                raise ValueError("Server command must contain complete HEX bytes")
+            full_packet = build_command_packet(bytes.fromhex(command_hex))
             self.serial_interface.write(full_packet)
-            self.status_message.emit(f"Sent Command ID {cmd_id} to Satellite.")
-            
-            # Acknowledge back to server
-            if "command_id" in command:
-                self.command_receiver.acknowledge_command(command["command_id"], "sent")
+            self.command_receiver.acknowledge_command(command, "sent")
+            self.status_message.emit(
+                f"Server command {command['command_id']} sent to serial: {full_packet.hex().upper()}"
+            )
                 
         except Exception as e:
+            if command.get("command_id"):
+                self.command_receiver.acknowledge_command(command, "failed")
             self.error_message.emit(f"Failed to send server command: {e}")
 
     def sendCommand(self, hex_text: str):
@@ -178,4 +185,5 @@ class GroundStationController(QObject):
 
     def cleanup(self):
         self.disconnect_serial()
+        self.command_receiver.close()
         self.telemetry_forwarder.close()

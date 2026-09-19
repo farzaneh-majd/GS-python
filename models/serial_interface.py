@@ -11,11 +11,16 @@ class SerialInterface:
         ports = serial.tools.list_ports.comports()
         return [port.device for port in ports]
 
-    def connect(self, port: str, baudrate: int, timeout: float = 0.1):
+    def connect(self, port: str, baudrate: int, timeout: float = 0.1, write_timeout: float = 1.0):
         if self.ser and self.ser.is_open:
             self.disconnect()
 
-        self.ser = serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
+        self.ser = serial.Serial(
+            port=port,
+            baudrate=baudrate,
+            timeout=timeout,
+            write_timeout=write_timeout,
+        )
 
     def disconnect(self):
         if self.ser and self.ser.is_open:

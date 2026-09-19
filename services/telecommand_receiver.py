@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta
+from pathlib import Path
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer
 from dotenv import load_dotenv
-from influxdb_client import InfluxDBClient
+from influxdb_client import InfluxDBClient, Point, WritePrecision
+from influxdb_client.client.write_api import SYNCHRONOUS
 
 
 class TelecommandReceiver(QObject):
@@ -22,17 +25,24 @@ class TelecommandReceiver(QObject):
 
         # Load environment variables
         load_dotenv(env_path)
+        shared_env_path = os.getenv("INFLUX_ENV_FILE", "").strip()
+        if shared_env_path:
+            shared_path = Path(shared_env_path)
+            if not shared_path.is_absolute():
+                shared_path = Path(env_path).resolve().parent / shared_path
+            load_dotenv(shared_path, override=True)
 
         self.url = os.getenv("INFLUX_URL", "http://localhost:8086")
         self.token = os.getenv("INFLUX_TOKEN", "")
         self.org = os.getenv("INFLUX_ORG", "")
         # Using a dedicated bucket for commands, or fallback to telemetry
-        self.bucket = os.getenv("INFLUX_TC_BUCKET", "telecommands")
-        self.satellite_id = os.getenv("INFLUX_SATELLITE_ID", "CUBESAT_01")
+        self.bucket = os.getenv("INFLUX_TC_BUCKET") or os.getenv("INFLUX_BUCKET", "Telemetry")
+        self.satellite_id = os.getenv("INFLUX_SATELLITE_ID", "cubesat-1")
         self.measurement = os.getenv("INFLUX_TC_MEASUREMENT", "commands")
 
         self.client: InfluxDBClient | None = None
         self.query_api = None
+        self.write_api = None
 
         # Track the timestamp of the last command processed to avoid duplicate execution.
         # Initialized to look for commands generated in the last 5 minutes.
@@ -55,6 +65,7 @@ class TelecommandReceiver(QObject):
 
             self.client = InfluxDBClient(url=self.url, token=self.token, org=self.org)
             self.query_api = self.client.query_api()
+            self.write_api = self.client.write_api(write_options=SYNCHRONOUS)
             self.status_message.emit(
                 f"InfluxDB Receiver initialized (bucket={self.bucket})."
             )
@@ -87,7 +98,9 @@ class TelecommandReceiver(QObject):
           |> filter(fn: (r) => r["_measurement"] == "{self.measurement}")
           |> filter(fn: (r) => r["satellite_id"] == "{self.satellite_id}")
           |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+          |> filter(fn: (r) => r["status"] == "queued")
           |> sort(columns: ["_time"], desc: false)
+          |> limit(n: 10)
         '''
 
         try:
@@ -100,10 +113,10 @@ class TelecommandReceiver(QObject):
                     
                     # Construct command packet
                     cmd_packet = {
-                        "tc_id": record.values.get("tc_id", "unknown"),
+                        "command_id": record.values.get("command_id", "unknown"),
+                        "satellite_id": record.values.get("satellite_id", self.satellite_id),
                         "timestamp": record_time.isoformat(),
-                        # The command payload could be hex encoded or plain text parameters
-                        "payload": record.values.get("payload", ""),
+                        "command_hex": record.values.get("command_hex", ""),
                     }
                     new_commands.append((record_time, cmd_packet))
 
@@ -120,10 +133,27 @@ class TelecommandReceiver(QObject):
                 # Add a small buffer or offset if necessary to avoid boundary issues,
                 # but standard practice is setting the range boundary past the last processed time.
                 last_time = new_commands[-1][0]
-                self.last_processed_time = last_time.isoformat()
+                self.last_processed_time = (last_time + timedelta(microseconds=1)).isoformat()
 
         except Exception as e:
             self.error_occurred.emit(f"Error querying telecommands: {e}")
+
+    def acknowledge_command(self, command: dict, status: str = "sent") -> None:
+        if not self.write_api:
+            return
+        try:
+            timestamp = datetime.fromisoformat(str(command["timestamp"]).replace("Z", "+00:00"))
+            point = (
+                Point(self.measurement)
+                .tag("command_id", str(command["command_id"]))
+                .tag("satellite_id", str(command.get("satellite_id", self.satellite_id)))
+                .field("command_hex", str(command.get("command_hex", "")))
+                .field("status", status)
+                .time(timestamp, WritePrecision.NS)
+            )
+            self.write_api.write(bucket=self.bucket, org=self.org, record=point)
+        except Exception as e:
+            self.error_occurred.emit(f"Failed to acknowledge command: {e}")
 
     def close(self) -> None:
         self.stop_polling()

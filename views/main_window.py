@@ -42,6 +42,7 @@ class MainWindow(QMainWindow):
 
         self.controller = GroundStationController()
         self.controller.packet_received.connect(self._handle_received_packet)
+        self.controller.command_fetched.connect(self._log_server_command)
 
         self.refresh_ports()    
 
@@ -65,9 +66,13 @@ class MainWindow(QMainWindow):
     def toggle_connection(self):
         if not self.controller.is_connected():
             port = self.port_combo.currentText()
+            if not port:
+                self.log("No serial ports found. Turn Bluetooth on and click Refresh.")
+                self.connect_button.setText("Connect")
+                return
             baud = int(self.baud_combo.currentText())
-            self.controller.connect_serial(port, baud)
-            self.connect_button.setText("Disconnect")
+            connected = self.controller.connect_serial(port, baud)
+            self.connect_button.setText("Disconnect" if connected else "Connect")
         else:
             self.controller.disconnect_serial()
             self.connect_button.setText("Connect")
@@ -76,7 +81,10 @@ class MainWindow(QMainWindow):
         self.console.append(message)
 
     def _log_server_command(self, cmd: dict):
-        self.log(f"--- Incoming Server Command: ID {cmd.get('cmd_id')} ---")
+        self.log(
+            f"--- Incoming Next.js Command: {cmd.get('command_hex')} "
+            f"({cmd.get('command_id')}) ---"
+        )
 
     def _handle_received_packet(self, packet: dict):
 

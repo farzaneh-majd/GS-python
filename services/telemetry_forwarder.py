@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
+import os
+import re
+import uuid
+from pathlib import Path
+
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from dotenv import load_dotenv
-import os
 
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
@@ -17,6 +22,25 @@ _PRECISION_MAP = {
 }
 
 
+def _safe_field_name(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_]", "_", value)
+
+
+def _dashboard_tlm_id(value: object) -> str:
+    """Convert the decoder's zero-padded hexadecimal ID to the dashboard ID."""
+    text = str(value)
+    if re.fullmatch(r"[0-9A-Fa-f]{4}", text):
+        return str(int(text, 16))
+    return text
+
+
+def _decoded_values(packet: dict) -> dict[str, object]:
+    value = packet.get("value")
+    if isinstance(value, dict):
+        return value
+    return {str(packet.get("name", "value")): value}
+
+
 class TelemetryForwarder(QObject):
     status_message = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
@@ -26,13 +50,19 @@ class TelemetryForwarder(QObject):
 
         # Load .env (safe to call multiple times)
         load_dotenv(env_path)
+        shared_env_path = os.getenv("INFLUX_ENV_FILE", "").strip()
+        if shared_env_path:
+            shared_path = Path(shared_env_path)
+            if not shared_path.is_absolute():
+                shared_path = Path(env_path).resolve().parent / shared_path
+            load_dotenv(shared_path, override=True)
 
         self.url = os.getenv("INFLUX_URL", "http://localhost:8086")
         self.token = os.getenv("INFLUX_TOKEN", "")
         self.org = os.getenv("INFLUX_ORG", "")
         self.bucket = os.getenv("INFLUX_BUCKET", "")
         
-        self.measurement = os.getenv("INFLUX_MEASUREMENT", "telemetry")
+        self.measurement = os.getenv("INFLUX_MEASUREMENT", "raw_telemetry")
         self.satellite_id = os.getenv("INFLUX_SATELLITE_ID", "CUBESAT_01")
 
         precision_str = os.getenv("INFLUX_TIME_PRECISION", "ms").lower().strip()
@@ -65,41 +95,52 @@ class TelemetryForwarder(QObject):
     @pyqtSlot(dict)
     def forward(self, packet: dict) -> None:
         """
-        Expected packet format:
+        Writes the schema consumed by the sibling Next.js ground station.
+
+        Expected decoded packet format:
           {
             "tlm_id": int | str,
             "timestamp": int,   # unix time in precision matching INFLUX_TIME_PRECISION (default ms)
-            "payload": bytes | bytearray | str
+            "data": bytes | bytearray | str,
+            "name": str,
+            "value": scalar | dict
           }
         """
         if not self.write_api:
             return
 
         try:
-            tlm_id = packet.get("tlm_id", "unknown")
+            tlm_id = _dashboard_tlm_id(packet.get("tlm_id", "unknown"))
             ts = packet.get("timestamp", None)
             payload = packet.get("data", b"")
-
-            print(ts)
 
             if ts is None:
                 raise ValueError("packet missing required field: 'timestamp'")
 
             # store payload as a string field (Influx fields cannot be raw bytes)
-            print()
             if isinstance(payload, (bytes, bytearray)):
                 payload_str = payload.hex()
             else:
                 payload_str = str(payload)
-            # print(payload_str)
-            
+
+            values = _decoded_values(packet)
+            record_id = uuid.uuid4().hex
             point = (
                 Point(self.measurement)
+                .tag("record_id", record_id)
                 .tag("satellite_id", self.satellite_id)
-                .tag("tlm_id", str(tlm_id))
+                .tag("tlm_id", tlm_id)
                 .field("payload", payload_str)
+                .field("telemetry_name", str(packet.get("name", f"Telemetry {tlm_id}")))
+                .field("decoded_json", json.dumps(values, separators=(",", ":")))
+                .field("payload_byte_length", len(payload_str) // 2)
                 .time(int(ts), self.time_precision)
             )
+
+            for name, value in values.items():
+                if isinstance(value, (bool, int, float, str)):
+                    point.field(_safe_field_name(str(name)), value)
+
             self.write_api.write(bucket=self.bucket, org=self.org, record=point)
 
         except Exception as e:
