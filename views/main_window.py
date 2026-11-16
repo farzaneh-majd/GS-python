@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 import re
 
 from controllers.ground_station_controller import GroundStationController
+from models.protocol.command_catalog import COMMAND_PRESETS
 from views.packet_monitor import PacketMonitorWidget
 
 class MainWindow(QMainWindow):
@@ -44,6 +45,8 @@ class MainWindow(QMainWindow):
         self.controller.packet_received.connect(self._handle_received_packet)
         self.controller.command_fetched.connect(self._log_server_command)
 
+        self.satellite_combo.setCurrentText(self.controller.satellite_id)
+
         self.refresh_ports()    
 
 
@@ -57,11 +60,23 @@ class MainWindow(QMainWindow):
         hex_text = self.cmd_input.text().strip()
         self.controller.sendCommand(hex_text)        
 
+    def select_command_preset(self, label: str):
+        opcode = COMMAND_PRESETS.get(label, "")
+        if opcode:
+            self.cmd_input.setText(opcode)
+
     def refresh_ports(self):
         self.port_combo.clear()
         ports = self.controller.getListPorts()
         self.port_combo.addItems(ports)
         self.log(f"Found ports: {ports if ports else 'None'}")
+
+    def change_satellite(self, satellite_id: str):
+        previous = self.controller.satellite_id
+        if not self.controller.set_satellite_id(satellite_id):
+            self.satellite_combo.blockSignals(True)
+            self.satellite_combo.setCurrentText(previous)
+            self.satellite_combo.blockSignals(False)
 
     def toggle_connection(self):
         if not self.controller.is_connected():
@@ -176,6 +191,9 @@ class MainWindow(QMainWindow):
         connection_layout = QHBoxLayout()
 
         self.port_combo = QComboBox()
+        self.satellite_combo = QComboBox()
+        self.satellite_combo.addItems(["SAT-A", "SAT-B"])
+        self.satellite_combo.currentTextChanged.connect(self.change_satellite)
         self.baud_combo = QComboBox()
         self.baud_combo.addItems(["9600", "19200", "38400", "57600", "115200"])
         self.baud_combo.setCurrentText("115200")
@@ -187,6 +205,8 @@ class MainWindow(QMainWindow):
         self.refresh_button.clicked.connect(self.refresh_ports)
         self.connect_button.clicked.connect(self.toggle_connection)
 
+        connection_layout.addWidget(QLabel("Satellite:"))
+        connection_layout.addWidget(self.satellite_combo)
         connection_layout.addWidget(QLabel("Port:"))
         connection_layout.addWidget(self.port_combo)
         connection_layout.addWidget(QLabel("Baud:"))
@@ -283,13 +303,19 @@ class MainWindow(QMainWindow):
 
         cmd_label = QLabel("CmdID (HEX):")
 
+        self.command_preset = QComboBox()
+        self.command_preset.addItem("Select a safe command...")
+        self.command_preset.addItems(COMMAND_PRESETS.keys())
+        self.command_preset.currentTextChanged.connect(self.select_command_preset)
+
         self.cmd_input = QLineEdit()
-        self.cmd_input.setPlaceholderText("e.g. 0A")
+        self.cmd_input.setPlaceholderText("e.g. 8401 (LED start blinking)")
 
         self.send_cmd_button = QPushButton("Send")
         self.send_cmd_button.clicked.connect(self.send_command)
 
         command_layout.addWidget(cmd_label)
+        command_layout.addWidget(self.command_preset)
         command_layout.addWidget(self.cmd_input)
         command_layout.addWidget(self.send_cmd_button)
 

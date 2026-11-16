@@ -1,5 +1,4 @@
 import os
-import re
 import math
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 
@@ -8,10 +7,11 @@ from models.serial_interface import SerialInterface
 from models.receiver_thread import ReceiverThread
 from models.telemetry_processor import TelemetryProcessor
 from models.protocol.command_packet import build_command_packet
+from models.protocol.command_catalog import normalize_command_hex
 from services.telemetry_forwarder import TelemetryForwarder
 from services.telecommand_receiver import TelecommandReceiver
 from models.protocol.tlm_decoder import TelemetryDecoder
-from datetime import datetime
+from datetime import datetime, timezone
 # from models.command_receiver import CommandReceiver
 
 class GroundStationController(QObject):
@@ -109,6 +109,24 @@ class GroundStationController(QObject):
     def is_connected(self):
         return self.serial_interface.is_connected()
 
+    @property
+    def satellite_id(self):
+        return self.telemetry_forwarder.satellite_id
+
+    def set_satellite_id(self, satellite_id: str):
+        """Route telemetry and commands for exactly one selected spacecraft."""
+        if self.is_connected():
+            self.status_message.emit("Disconnect serial before changing the active satellite.")
+            return False
+        try:
+            self.telemetry_forwarder.set_satellite_id(satellite_id)
+            self.command_receiver.set_satellite_id(satellite_id)
+            self.status_message.emit(f"Active spacecraft set to {satellite_id}.")
+            return True
+        except Exception as exc:
+            self.error_message.emit(f"Unable to select satellite: {exc}")
+            return False
+
     # --- Data Routing ---
 
     @pyqtSlot(dict)
@@ -123,8 +141,9 @@ class GroundStationController(QObject):
             return
         packet["decoded"] = decoded
 
-
-        # temprorary replace cubesat timestamp with local machine timestamp
+        # Preserve the spacecraft timestamp for the local display while using an
+        # authoritative UTC receive time for database ingestion.
+        packet["decoded"]["received_at"] = datetime.now(timezone.utc).isoformat()
         packet["decoded"]["timestamp"] = math.floor(datetime.now().timestamp() * 1000)
 
         # Send to View
@@ -147,19 +166,17 @@ class GroundStationController(QObject):
 
         # Simple Packet Builder logic (Can be moved to a helper function)
         try:
-            command_hex = re.sub(r'[^0-9A-Fa-f]', '', str(command.get("command_hex", "")))
-            if not command_hex or len(command_hex) % 2:
-                raise ValueError("Server command must contain complete HEX bytes")
+            command_hex = normalize_command_hex(str(command.get("command_hex", "")))
             full_packet = build_command_packet(bytes.fromhex(command_hex))
             self.serial_interface.write(full_packet)
-            self.command_receiver.acknowledge_command(command, "sent")
+            self.command_receiver.acknowledge_command(command, "SENT")
             self.status_message.emit(
                 f"Server command {command['command_id']} sent to serial: {full_packet.hex().upper()}"
             )
                 
         except Exception as e:
             if command.get("command_id"):
-                self.command_receiver.acknowledge_command(command, "failed")
+                self.command_receiver.acknowledge_command(command, "FAILED")
             self.error_message.emit(f"Failed to send server command: {e}")
 
     def sendCommand(self, hex_text: str):
@@ -170,10 +187,7 @@ class GroundStationController(QObject):
 
         try:
 
-            clean_hex = re.sub(r'[^0-9A-Fa-f]', '', hex_text)
-            
-            if len(clean_hex) % 2 != 0:
-                raise ValueError("Hex string must contain full bytes")
+            clean_hex = normalize_command_hex(hex_text)
 
             cmd_opcode = bytes.fromhex(clean_hex)
 

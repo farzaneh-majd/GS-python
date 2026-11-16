@@ -19,6 +19,9 @@ def main():
         app.setStyleSheet(f.read())
     window = MainWindow()
     window.show()
+    auto_satellite = os.getenv("GROUND_STATION_SATELLITE_ID", "SAT-A").strip().upper()
+    if auto_satellite in ("SAT-A", "SAT-B"):
+        window.satellite_combo.setCurrentText(auto_satellite)
     runtime_log = os.getenv("EDUSAT_RUNTIME_LOG", "").strip()
     if runtime_log:
         def write_runtime_log(message):
